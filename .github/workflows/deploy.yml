@@ -1,0 +1,68 @@
+name: Deploy PWA from ZIP to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Extract PWA Files to Runner Staging Directory
+        run: |
+          mkdir -p "$RUNNER_TEMP/pwa_site"
+          
+          # Find any .zip uploaded to the repository
+          ZIP_FILE=$(find "$GITHUB_WORKSPACE" -maxdepth 2 -name "*.zip" | head -n 1)
+          
+          if [ -n "$ZIP_FILE" ] && [ -f "$ZIP_FILE" ]; then
+            echo "Found zip file: $ZIP_FILE"
+            unzip -q -o "$ZIP_FILE" -d "$RUNNER_TEMP/extracted"
+            
+            # Find index.html anywhere inside the extracted files
+            INDEX_FILE=$(find "$RUNNER_TEMP/extracted" -name "index.html" | head -n 1)
+            if [ -n "$INDEX_FILE" ] && [ -f "$INDEX_FILE" ]; then
+              PWA_ROOT=$(dirname "$INDEX_FILE")
+              echo "Located webapp root at: $PWA_ROOT"
+              cp -r "$PWA_ROOT"/* "$RUNNER_TEMP/pwa_site/"
+            else
+              echo "Error: index.html not found inside the ZIP archive!"
+              exit 1
+            fi
+          else
+            echo "Error: No .zip archive found in repository!"
+            exit 1
+          fi
+          
+          echo "Listing files ready for deployment:"
+          ls -la "$RUNNER_TEMP/pwa_site"
+
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '${{ runner.temp }}/pwa_site'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
